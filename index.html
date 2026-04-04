@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>YChat — Live</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#080808;--bg2:#101010;--bg3:#181818;--bg4:#202020;
+      --white:#f5f5f5;--white2:#c0c0c0;--white3:#666;--white4:#333;
+      --border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.06);
+    }
+    body{background:var(--bg);font-family:'DM Sans',sans-serif;color:var(--white);min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1rem}
+    #app{width:100%;max-width:440px}
+
+    /* LANDING */
+    #landing{display:flex;flex-direction:column;gap:1.25rem;padding:2rem;background:var(--bg2);border:0.5px solid var(--border);border-radius:16px}
+    .logo{font-family:'Space Mono',monospace;font-size:2rem;font-weight:700;letter-spacing:-2px}
+    .logo span{color:var(--white3)}
+    .badge{display:inline-block;font-family:'Space Mono',monospace;font-size:0.58rem;color:var(--white3);letter-spacing:0.1em;border:0.5px solid var(--white4);padding:2px 7px;border-radius:4px;margin-left:8px;vertical-align:middle}
+    .tagline{font-size:0.75rem;color:var(--white3);font-weight:300;margin-top:4px}
+    .pills{display:flex;gap:0.4rem;flex-wrap:wrap}
+    .pill{font-size:0.65rem;padding:3px 9px;border-radius:999px;border:0.5px solid var(--border);color:var(--white3);background:var(--bg3);font-family:'Space Mono',monospace}
+    .divider{height:0.5px;background:var(--border2)}
+    .field-group{display:flex;flex-direction:column;gap:0.35rem}
+    .field-label{font-size:0.65rem;letter-spacing:0.14em;text-transform:uppercase;color:var(--white3);font-family:'Space Mono',monospace}
+    .field-input{background:var(--bg3);border:0.5px solid var(--border);border-radius:8px;padding:0.7rem 1rem;font-family:'DM Sans',sans-serif;font-size:0.92rem;color:var(--white);outline:none;transition:border 0.2s,background 0.2s;width:100%}
+    .field-input:focus{border-color:rgba(255,255,255,0.4);background:var(--bg4)}
+    .field-input::placeholder{color:var(--white4)}
+    .row{display:flex;gap:0.75rem}
+    .row .field-group{flex:1}
+    .hint{font-size:0.68rem;color:var(--white3)}
+    .connect-btn{width:100%;background:var(--white);color:#000;font-family:'Space Mono',monospace;font-size:0.85rem;font-weight:700;border:none;border-radius:8px;padding:0.85rem;cursor:pointer;letter-spacing:0.06em;transition:opacity 0.15s,transform 0.1s;margin-top:0.25rem}
+    .connect-btn:hover{opacity:0.88}
+    .connect-btn:active{transform:scale(0.98)}
+    .connect-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
+    .status-bar{font-family:'Space Mono',monospace;font-size:0.68rem;padding:0.6rem 0.9rem;border-radius:8px;display:none;text-align:center}
+    .status-connecting{display:block!important;background:rgba(251,146,60,0.1);color:#fb923c;border:0.5px solid rgba(251,146,60,0.3)}
+    .status-error{display:block!important;background:rgba(248,113,113,0.1);color:#f87171;border:0.5px solid rgba(248,113,113,0.3)}
+
+    /* CHAT */
+    #chat{display:none;flex-direction:column;height:620px;background:var(--bg2);border:0.5px solid var(--border);border-radius:16px;overflow:hidden}
+    .chat-header{padding:0.9rem 1.2rem;border-bottom:0.5px solid var(--border2);display:flex;align-items:center;justify-content:space-between;background:var(--bg3)}
+    .h-left{display:flex;flex-direction:column;gap:4px}
+    .h-logo{font-family:'Space Mono',monospace;font-size:0.92rem;font-weight:700}
+    .h-logo span{color:var(--white3)}
+    .h-meta{display:flex;align-items:center;gap:8px}
+    .room-tag{font-family:'Space Mono',monospace;font-size:0.58rem;color:var(--white3);background:var(--bg4);border:0.5px solid var(--border);border-radius:4px;padding:2px 6px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .live-dot{width:5px;height:5px;border-radius:50%;background:#4ade80;display:inline-block;animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.2}}
+    .live-txt{font-size:0.6rem;color:var(--white3);font-family:'Space Mono',monospace}
+
+    /* ── FIX: username in header bold & visible ── */
+    .h-username{font-family:'Space Mono',monospace;font-size:0.75rem;font-weight:700;color:var(--white);letter-spacing:0.04em;background:var(--bg4);border:0.5px solid rgba(255,255,255,0.15);border-radius:5px;padding:3px 8px}
+
+    .leave-btn{font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--white3);background:none;border:0.5px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;transition:all 0.15s}
+    .leave-btn:hover{color:var(--white);border-color:rgba(255,255,255,0.3)}
+    .messages{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:0.65rem;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+    .msg{display:flex;flex-direction:column;gap:3px;max-width:78%}
+    .msg.me{align-self:flex-end;align-items:flex-end}
+    .msg.them{align-self:flex-start;align-items:flex-start}
+
+    /* ── FIX: msg-user bold & clearly visible ── */
+    .msg-user{font-family:'Space Mono',monospace;font-size:0.68rem;font-weight:700;color:var(--white2);letter-spacing:0.04em}
+    .msg.me .msg-user{color:rgba(255,255,255,0.5)}
+
+    .msg-bubble{padding:0.5rem 0.8rem;border-radius:10px;font-size:0.86rem;line-height:1.5;word-break:break-word}
+    .msg.me .msg-bubble{background:var(--white);color:#000;border-bottom-right-radius:2px}
+    .msg.them .msg-bubble{background:var(--bg3);border:0.5px solid var(--border2);color:var(--white);border-bottom-left-radius:2px}
+    .msg-time{font-size:0.57rem;color:var(--white4);font-family:'Space Mono',monospace}
+    .system-msg{text-align:center;font-size:0.62rem;color:var(--white4);font-family:'Space Mono',monospace;padding:0.1rem 0;letter-spacing:0.04em}
+    .typing-indicator{font-size:0.62rem;color:var(--white4);font-family:'Space Mono',monospace;font-style:italic;padding:0 0.2rem}
+
+    /* IMAGE messages */
+    .msg-img{max-width:100%;max-height:220px;border-radius:8px;cursor:pointer;display:block;margin-top:2px}
+    .msg.me .msg-img{border-bottom-right-radius:2px}
+    .msg.them .msg-img{border-bottom-left-radius:2px}
+
+    /* FILE messages */
+    .msg-file{display:flex;align-items:center;gap:8px;padding:0.5rem 0.75rem;border-radius:10px;background:var(--bg4);border:0.5px solid var(--border);cursor:pointer;text-decoration:none;color:var(--white);max-width:220px}
+    .msg.me .msg-file{background:rgba(0,0,0,0.15);color:#000;border-color:rgba(0,0,0,0.1)}
+    .file-icon{font-size:1.3rem;flex-shrink:0}
+    .file-info{display:flex;flex-direction:column;gap:1px;overflow:hidden}
+    .file-name{font-size:0.78rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .file-size{font-size:0.62rem;color:var(--white3);font-family:'Space Mono',monospace}
+    .msg.me .file-size{color:rgba(0,0,0,0.45)}
+
+    /* IMAGE LIGHTBOX */
+    #lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:999;align-items:center;justify-content:center;cursor:zoom-out}
+    #lightbox.open{display:flex}
+    #lightbox img{max-width:92vw;max-height:88vh;border-radius:10px}
+
+    /* NOTIFICATION TOAST */
+    #notifToast{position:fixed;top:1rem;right:1rem;background:var(--bg3);border:0.5px solid var(--border);border-radius:10px;padding:0.7rem 1rem;display:flex;align-items:flex-start;gap:10px;max-width:280px;z-index:998;transform:translateX(120%);transition:transform 0.3s ease;box-shadow:0 4px 24px rgba(0,0,0,0.5)}
+    #notifToast.show{transform:translateX(0)}
+    .notif-icon{font-size:1.1rem;flex-shrink:0;margin-top:1px}
+    .notif-body{display:flex;flex-direction:column;gap:2px}
+    .notif-sender{font-family:'Space Mono',monospace;font-size:0.68rem;font-weight:700;color:var(--white)}
+    .notif-text{font-size:0.75rem;color:var(--white3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+
+    /* FOOTER WRAP & INPUT ROW */
+    .footer-wrap{position:relative}
+    .emoji-picker{display:none;position:absolute;bottom:60px;left:10px;background:var(--bg3);border:0.5px solid var(--border);border-radius:10px;padding:0.5rem;flex-wrap:wrap;gap:3px;width:196px;z-index:10}
+    .emoji-picker.open{display:flex}
+    .ep{font-size:1.15rem;cursor:pointer;padding:3px;border-radius:4px;transition:background 0.1s}
+    .ep:hover{background:var(--bg4)}
+    .input-row{padding:0.6rem 0.75rem;border-top:0.5px solid var(--border2);display:flex;gap:0.4rem;align-items:center;background:var(--bg3)}
+    .icon-btn{background:none;border:none;cursor:pointer;opacity:0.45;transition:opacity 0.15s;border-radius:5px;padding:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .icon-btn:hover{opacity:0.9}
+    .icon-btn svg{width:18px;height:18px;stroke:var(--white);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+    .emoji-btn-txt{font-size:1rem}
+    .msg-input{flex:1;background:var(--bg4);border:0.5px solid var(--border);border-radius:8px;padding:0.55rem 0.85rem;font-family:'DM Sans',sans-serif;font-size:0.86rem;color:var(--white);outline:none;transition:border 0.15s;min-width:0}
+    .msg-input:focus{border-color:rgba(255,255,255,0.35)}
+    .msg-input::placeholder{color:var(--white4)}
+    .send-btn{background:var(--white);border:none;border-radius:8px;width:34px;height:34px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity 0.15s}
+    .send-btn:hover{opacity:0.8}
+    #fileInput{display:none}
+
+    /* FOOTER BRANDING */
+    .footer-brand{text-align:center;padding:0.8rem 0 0.2rem;display:flex;flex-direction:column;gap:3px}
+    .footer-name{font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--white3);letter-spacing:0.08em}
+    .footer-name strong{color:var(--white2);font-weight:700}
+    .footer-ig a{font-size:0.62rem;color:var(--white4);text-decoration:none;transition:color 0.15s;font-family:'Space Mono',monospace}
+    .footer-ig a:hover{color:var(--white)}
+  </style>
+</head>
+<body>
+
+<!-- IMAGE LIGHTBOX -->
+<div id="lightbox" onclick="closeLightbox()">
+  <img id="lightboxImg" src="" alt=""/>
+</div>
+
+<!-- NOTIFICATION TOAST -->
+<div id="notifToast">
+  <div class="notif-icon">💬</div>
+  <div class="notif-body">
+    <div class="notif-sender" id="notifSender"></div>
+    <div class="notif-text" id="notifText"></div>
+  </div>
+</div>
+
+<div id="app">
+  <!-- LANDING -->
+  <div id="landing">
+    <div>
+      <div><span class="logo">Y<span>Chat</span></span><span class="badge">LIVE</span></div>
+      <div class="tagline">Two people · one room · zero history · works worldwide 🌍</div>
+    </div>
+    <div class="pills">
+      <span class="pill">anonymous</span>
+      <span class="pill">passcode locked</span>
+      <span class="pill">no signup</span>
+      <span class="pill">no server</span>
+      <span class="pill">pure frontend</span>
+    </div>
+    <div class="divider"></div>
+    <div class="field-group">
+      <div class="field-label">Username</div>
+      <input class="field-input" id="usernameInput" placeholder="Your anonymous name..." maxlength="20"/>
+    </div>
+    <div class="row">
+      <div class="field-group">
+        <div class="field-label">Room Code</div>
+        <input class="field-input" id="roomInput" placeholder="e.g. 192.168.1.1" maxlength="40"/>
+      </div>
+      <div class="field-group">
+        <div class="field-label">Passcode</div>
+        <input class="field-input" id="passInput" type="password" placeholder="Secret key" maxlength="30"/>
+      </div>
+    </div>
+    <div class="hint">Both room code + passcode must match to enter the same room</div>
+    <div class="status-bar" id="statusBar"></div>
+    <button class="connect-btn" id="connectBtn" onclick="connectToRoom()">CONNECT →</button>
+  </div>
+
+  <!-- CHAT -->
+  <div id="chat">
+    <div class="chat-header">
+      <div class="h-left">
+        <div class="h-logo">Y<span>Chat</span></div>
+        <div class="h-meta">
+          <div class="room-tag" id="roomDisplay"></div>
+          <span class="live-dot"></span>
+          <span class="live-txt">live</span>
+        </div>
+        <!-- Bold visible username -->
+        <div class="h-username" id="headerUsername"></div>
+      </div>
+      <button class="leave-btn" onclick="leaveRoom()">leave room</button>
+    </div>
+
+    <div class="messages" id="messages"></div>
+
+    <div class="footer-wrap">
+      <div class="emoji-picker" id="emojiPicker">
+        <span class="ep" onclick="addEmoji('😂')">😂</span>
+        <span class="ep" onclick="addEmoji('❤️')">❤️</span>
+        <span class="ep" onclick="addEmoji('🔥')">🔥</span>
+        <span class="ep" onclick="addEmoji('👍')">👍</span>
+        <span class="ep" onclick="addEmoji('😎')">😎</span>
+        <span class="ep" onclick="addEmoji('🤔')">🤔</span>
+        <span class="ep" onclick="addEmoji('😅')">😅</span>
+        <span class="ep" onclick="addEmoji('🙏')">🙏</span>
+        <span class="ep" onclick="addEmoji('💯')">💯</span>
+        <span class="ep" onclick="addEmoji('🎉')">🎉</span>
+        <span class="ep" onclick="addEmoji('👀')">👀</span>
+        <span class="ep" onclick="addEmoji('😭')">😭</span>
+        <span class="ep" onclick="addEmoji('✨')">✨</span>
+        <span class="ep" onclick="addEmoji('🚀')">🚀</span>
+        <span class="ep" onclick="addEmoji('😍')">😍</span>
+        <span class="ep" onclick="addEmoji('🤝')">🤝</span>
+      </div>
+      <div class="input-row">
+        <!-- Emoji -->
+        <button class="icon-btn" onclick="toggleEmoji()" title="Emoji">
+          <span class="emoji-btn-txt">😊</span>
+        </button>
+        <!-- Image -->
+        <button class="icon-btn" onclick="document.getElementById('fileInput').click(); document.getElementById('fileInput').setAttribute('accept','image/*')" title="Send image">
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        </button>
+        <!-- File / Document -->
+        <button class="icon-btn" onclick="document.getElementById('fileInput').click(); document.getElementById('fileInput').setAttribute('accept','*/*')" title="Send file">
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </button>
+        <input type="file" id="fileInput" onchange="handleFileSelect(event)"/>
+        <input class="msg-input" id="msgInput" placeholder="Type a message..."
+          maxlength="500" onkeydown="handleKey(event)" oninput="onTyping()"/>
+        <button class="send-btn" onclick="sendMessage()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer-brand">
+  <div class="footer-name">Built by <strong>Harpreet Mahalwar</strong></div>
+  <div class="footer-ig"><a href="https://instagram.com/mahalwarharpreet" target="_blank">@mahalwarharpreet</a></div>
+</div>
+
+<script>
+  const BROKER = 'wss://broker.hivemq.com:8884/mqtt';
+  const MAX_FILE_MB = 5; // max file size in MB (MQTT payload limit)
+  let myName='', topic='', mqttClient=null;
+  let typingEl=null, typingTimer=null, typingSent=false;
+  let notifTimer=null;
+  let notifGranted = false;
+
+  // ── Request notification permission on load
+  window.addEventListener('load', ()=>{
+    if('Notification' in window && Notification.permission === 'default'){
+      Notification.requestPermission().then(p=>{ notifGranted = p==='granted'; });
+    } else if(Notification.permission === 'granted'){
+      notifGranted = true;
+    }
+  });
+
+  async function makeTopic(room, pass){
+    const enc  = new TextEncoder();
+    const data = enc.encode('ychat::'+room.trim().toLowerCase()+'::'+pass.trim());
+    const buf  = await crypto.subtle.digest('SHA-256', data);
+    const hex  = Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    return 'ychat/'+hex.slice(0,48);
+  }
+
+  async function connectToRoom(){
+    const u = document.getElementById('usernameInput').value.trim();
+    const r = document.getElementById('roomInput').value.trim();
+    const p = document.getElementById('passInput').value.trim();
+    if(!u){shake('usernameInput');return;}
+    if(!r){shake('roomInput');return;}
+    if(!p){shake('passInput');return;}
+
+    myName = u;
+    topic  = await makeTopic(r, p);
+
+    setStatus('connecting','Connecting...');
+    const btn = document.getElementById('connectBtn');
+    btn.disabled=true; btn.textContent='Connecting...';
+
+    mqttClient = mqtt.connect(BROKER,{
+      clientId:'ychat_'+Math.random().toString(36).slice(2,10),
+      clean:true, connectTimeout:10000, reconnectPeriod:4000
+    });
+
+    mqttClient.on('connect',()=>{
+      mqttClient.subscribe(topic,()=>{
+        publish({type:'system', text: myName+' joined the room'});
+        document.getElementById('landing').style.display='none';
+        document.getElementById('chat').style.display='flex';
+        document.getElementById('roomDisplay').textContent='# '+r.trim();
+        document.getElementById('headerUsername').textContent= myName;
+        clearStatus();
+        btn.disabled=false; btn.textContent='CONNECT →';
+      });
+    });
+
+    mqttClient.on('message',(t, payload)=>{
+      try{
+        const d = JSON.parse(payload.toString());
+        if(d.sender === myName) return;
+        if(d.type==='system')        addSystem(d.text);
+        else if(d.type==='typing')   showTyping(d.sender);
+        else if(d.type==='msg')      { clearTyping(); addMsg(d.sender, d.text, false); showNotif(d.sender, d.text); }
+        else if(d.type==='image')    { clearTyping(); addImage(d.sender, d.data, d.name, false); showNotif(d.sender, '📷 '+d.name); }
+        else if(d.type==='file')     { clearTyping(); addFile(d.sender, d.data, d.name, d.size, d.mime, false); showNotif(d.sender, '📎 '+d.name); }
+      } catch(e){}
+    });
+
+    mqttClient.on('error',()=>{ setStatus('error','Connection failed. Try again.'); btn.disabled=false; btn.textContent='CONNECT →'; });
+    mqttClient.on('reconnect',()=>setStatus('connecting','Reconnecting...'));
+    mqttClient.on('offline',()=>setStatus('error','You are offline.'));
+  }
+
+  function publish(obj){
+    if(mqttClient && mqttClient.connected)
+      mqttClient.publish(topic, JSON.stringify({...obj, sender:myName}), {qos:0});
+  }
+
+  function leaveRoom(){
+    publish({type:'system', text: myName+' left the room'});
+    setTimeout(()=>{
+      if(mqttClient){mqttClient.end(true); mqttClient=null;}
+      document.getElementById('messages').innerHTML='';
+      document.getElementById('chat').style.display='none';
+      document.getElementById('landing').style.display='flex';
+      document.getElementById('usernameInput').value='';
+      document.getElementById('roomInput').value='';
+      document.getElementById('passInput').value='';
+      myName=''; topic='';
+    },400);
+  }
+
+  /* ── TEXT MESSAGE ── */
+  function addMsg(user, text, isMe){
+    const msgs=document.getElementById('messages');
+    const time=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    const d=document.createElement('div');
+    d.className='msg '+(isMe?'me':'them');
+    d.innerHTML=`<div class="msg-user">${esc(user)}</div><div class="msg-bubble">${esc(text)}</div><div class="msg-time">${time}</div>`;
+    msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight;
+  }
+
+  /* ── IMAGE MESSAGE ── */
+  function addImage(user, dataUrl, name, isMe){
+    const msgs=document.getElementById('messages');
+    const time=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    const d=document.createElement('div');
+    d.className='msg '+(isMe?'me':'them');
+    const img=document.createElement('img');
+    img.src=dataUrl; img.className='msg-img'; img.alt=name;
+    img.onclick=()=>openLightbox(dataUrl);
+    d.innerHTML=`<div class="msg-user">${esc(user)}</div>`;
+    d.appendChild(img);
+    const t=document.createElement('div'); t.className='msg-time'; t.textContent=time;
+    d.appendChild(t);
+    msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight;
+  }
+
+  /* ── FILE MESSAGE ── */
+  function addFile(user, dataUrl, name, sizeStr, mime, isMe){
+    const msgs=document.getElementById('messages');
+    const time=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    const d=document.createElement('div');
+    d.className='msg '+(isMe?'me':'them');
+    const icon = getFileIcon(mime, name);
+    const a=document.createElement('a');
+    a.href=dataUrl; a.download=name; a.className='msg-file';
+    a.innerHTML=`<span class="file-icon">${icon}</span><div class="file-info"><div class="file-name">${esc(name)}</div><div class="file-size">${sizeStr}</div></div>`;
+    d.innerHTML=`<div class="msg-user">${esc(user)}</div>`;
+    d.appendChild(a);
+    const t=document.createElement('div'); t.className='msg-time'; t.textContent=time;
+    d.appendChild(t);
+    msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight;
+  }
+
+  function getFileIcon(mime, name){
+    if(!mime) mime='';
+    const ext=(name.split('.').pop()||'').toLowerCase();
+    if(mime.startsWith('image/')) return '🖼️';
+    if(mime.startsWith('video/')) return '🎬';
+    if(mime.startsWith('audio/')) return '🎵';
+    if(mime.includes('pdf') || ext==='pdf') return '📄';
+    if(['doc','docx'].includes(ext)) return '📝';
+    if(['xls','xlsx'].includes(ext)) return '📊';
+    if(['ppt','pptx'].includes(ext)) return '📑';
+    if(['zip','rar','7z','tar','gz'].includes(ext)) return '🗜️';
+    return '📎';
+  }
+
+  /* ── FILE SELECT HANDLER ── */
+  function handleFileSelect(e){
+    const file = e.target.files[0];
+    if(!file) return;
+    e.target.value=''; // reset so same file can be picked again
+
+    const sizeMB = file.size / (1024*1024);
+    if(sizeMB > MAX_FILE_MB){
+      alert(`File too large! Max size is ${MAX_FILE_MB}MB.\nYour file: ${sizeMB.toFixed(1)}MB`);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (ev)=>{
+      const dataUrl = ev.target.result;
+      const sizeStr = sizeMB < 1 ? (file.size/1024).toFixed(1)+' KB' : sizeMB.toFixed(1)+' MB';
+      const isImage = file.type.startsWith('image/');
+
+      if(isImage){
+        addImage(myName, dataUrl, file.name, true);
+        publish({type:'image', data:dataUrl, name:file.name});
+      } else {
+        addFile(myName, dataUrl, file.name, sizeStr, file.type, true);
+        publish({type:'file', data:dataUrl, name:file.name, size:sizeStr, mime:file.type});
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  /* ── LIGHTBOX ── */
+  function openLightbox(src){
+    document.getElementById('lightboxImg').src=src;
+    document.getElementById('lightbox').classList.add('open');
+  }
+  function closeLightbox(){
+    document.getElementById('lightbox').classList.remove('open');
+  }
+
+  /* ── NOTIFICATION ── */
+  function showNotif(sender, text){
+    // In-app toast
+    document.getElementById('notifSender').textContent=sender;
+    document.getElementById('notifText').textContent=text;
+    const toast=document.getElementById('notifToast');
+    toast.classList.add('show');
+    if(notifTimer) clearTimeout(notifTimer);
+    notifTimer=setTimeout(()=>toast.classList.remove('show'), 3500);
+
+    // Browser notification (when tab not focused)
+    if(notifGranted && document.hidden){
+      try{
+        const n = new Notification('YChat — '+sender, {body:text, icon:'https://img.icons8.com/ios-filled/50/ffffff/chat.png'});
+        setTimeout(()=>n.close(), 4000);
+      } catch(e){}
+    }
+
+    // Tab title flash
+    if(document.hidden){
+      document.title = '💬 New message — YChat';
+      setTimeout(()=>{ document.title='YChat — Live'; }, 4000);
+    }
+  }
+
+  function addSystem(text){
+    const msgs=document.getElementById('messages');
+    const d=document.createElement('div');
+    d.className='system-msg'; d.textContent='— '+text+' —';
+    msgs.appendChild(d); msgs.scrollTop=msgs.scrollHeight;
+  }
+
+  function showTyping(user){
+    clearTyping();
+    const msgs=document.getElementById('messages');
+    typingEl=document.createElement('div');
+    typingEl.className='typing-indicator';
+    typingEl.textContent=user+' is typing...';
+    msgs.appendChild(typingEl); msgs.scrollTop=msgs.scrollHeight;
+    typingTimer=setTimeout(clearTyping, 3000);
+  }
+
+  function clearTyping(){
+    if(typingEl){typingEl.remove();typingEl=null;}
+    if(typingTimer){clearTimeout(typingTimer);typingTimer=null;}
+  }
+
+  function onTyping(){
+    if(!typingSent){
+      publish({type:'typing'});
+      typingSent=true;
+      setTimeout(()=>{typingSent=false;},2000);
+    }
+  }
+
+  function sendMessage(){
+    const inp=document.getElementById('msgInput');
+    const text=inp.value.trim();
+    if(!text||!mqttClient)return;
+    inp.value='';
+    addMsg(myName,text,true);
+    publish({type:'msg',text});
+  }
+
+  function handleKey(e){if(e.key==='Enter')sendMessage();}
+  function toggleEmoji(){document.getElementById('emojiPicker').classList.toggle('open');}
+  function addEmoji(e){
+    const inp=document.getElementById('msgInput');
+    inp.value+=e; inp.focus();
+    document.getElementById('emojiPicker').classList.remove('open');
+  }
+
+  function setStatus(type,msg){
+    const el=document.getElementById('statusBar');
+    el.className='status-bar status-'+type; el.textContent=msg;
+  }
+  function clearStatus(){
+    const el=document.getElementById('statusBar');
+    el.className='status-bar'; el.textContent='';
+  }
+
+  function shake(id){
+    const el=document.getElementById(id);
+    el.style.borderColor='rgba(255,80,80,0.6)';
+    let s=0;
+    const iv=setInterval(()=>{
+      el.style.transform=s++%2===0?'translateX(5px)':'translateX(-5px)';
+      if(s>6){clearInterval(iv);el.style.transform='';setTimeout(()=>{el.style.borderColor='';},600);}
+    },50);
+  }
+
+  function esc(str){
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  document.addEventListener('click',e=>{
+    if(!e.target.closest('.footer-wrap'))
+      document.getElementById('emojiPicker').classList.remove('open');
+  });
+</script>
+</body>
+</html>
